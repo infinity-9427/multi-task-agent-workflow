@@ -6,4 +6,4 @@ class ReviewRepository:
         """
         Process a review request and return the response.
         """
-        return ReviewResponse.create_fake_response(request.details)
+        return ReviewResponse.create_response(request.details)
