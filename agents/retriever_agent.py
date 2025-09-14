@@ -7,10 +7,12 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 import google.generativeai as genai
+import psycopg2
 from sqlalchemy import text as sql_text
+from sqlalchemy.sql import text
 
 from agents.base_agent import BaseAgent
-from database.connection import get_database_session
+from database.connection import get_database_session, engine
 from schemas.review import RetrievalReport
 
 
@@ -57,27 +59,40 @@ class RetrieverAgent(BaseAgent):
             # Generate query embedding
             query_embedding = self._get_embedding(task_details)
             
-            # Query pgvector with Top-K=4
-            with get_database_session() as db:
-                # Convert list to pgvector format
-                embedding_str = f"[{','.join(map(str, query_embedding))}]"
+            # Query pgvector with Top-K=4 using raw psycopg2 connection
+            try:
+                # Get raw connection from SQLAlchemy engine
+                raw_conn = engine.raw_connection()
+                cursor = raw_conn.cursor()
                 
-                results = db.execute(
-                    sql_text("""
-                        SELECT id, document_id, text, 
-                               (1 - (embedding <=> :query_embedding::vector)) as similarity
-                        FROM chunks 
-                        WHERE model = :model AND dim = :dim
-                        ORDER BY embedding <=> :query_embedding::vector
-                        LIMIT :top_k
-                    """),
-                    {
-                        "query_embedding": embedding_str,
-                        "model": self.settings.EMBEDDING_MODEL,
-                        "dim": self.settings.EMBEDDING_DIM,
-                        "top_k": self.settings.TOP_K
-                    }
-                ).fetchall()
+                # Format embedding as proper pgvector array
+                embedding_array = query_embedding
+                
+                # Execute query with proper psycopg2 parameter substitution
+                query_sql = """
+                    SELECT id, document_id, text, 
+                           (1 - (embedding <=> %s::vector)) as similarity
+                    FROM chunks 
+                    WHERE model = %s AND dim = %s
+                    ORDER BY embedding <=> %s::vector
+                    LIMIT %s
+                """
+                
+                cursor.execute(query_sql, (
+                    embedding_array,
+                    self.settings.EMBEDDING_MODEL,
+                    self.settings.EMBEDDING_DIM,
+                    embedding_array,
+                    self.settings.TOP_K
+                ))
+                
+                results = cursor.fetchall()
+                cursor.close()
+                raw_conn.close()
+                
+            except Exception as query_error:
+                logger.error(f"Query execution failed: {query_error}")
+                results = []
             
             # Process results
             passages = []

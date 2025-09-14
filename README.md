@@ -1,7 +1,8 @@
 # Automated Task Review Agent
 
+AI-powered system that reviews task requests using RAG (Retrieval-Augmented Generation) with pgvector similarity search and LLM decision making.
 
-##  Quick Start
+## Quick Start
 
 ```bash
 # 1. Setup environment
@@ -20,66 +21,69 @@ curl -X POST "http://localhost:8080/review" \
   -d '{"task_id": "TEST-001", "details": "implement secure user authentication system"}'
 ```
 
-**API Documentation**: http://localhost:8080/docs  
-**Health Check**: http://localhost:8080/health
+API Documentation: http://localhost:8080/docs  
+Health Check: http://localhost:8080/health
 
-## 🏗️ Architecture
+## Architecture
 
-**pgvector-Only RAG System**:
--  **Retriever Agent**: pgvector cosine similarity search with Top-K=4
--  **Decision Agent**: Gemini 1.5 Flash 2.0 with JSON-only output  
--  **Coverage Gates**: 0.35 threshold blocks insufficient context
--  **Policy Gates**: Approval requires ≥2 citations + coverage ≥0.45
--  **Deterministic Flow**: retrieve → coverage gate → decide → policy gate → finalize
+The system uses a two-stage RAG pipeline with deterministic gates:
 
-**pgvector Storage**:
--  **PostgreSQL 16**: Single source of truth with pgvector extension
--  **Gemini Embeddings**: gemini-embedding-001 model (768 dimensions)
--  **Chunked Content**: ~900 chars with 150-200 overlap
--  **ANN Index**: ivfflat cosine similarity for fast search
-
-##  Features
-
-- pgvector-only architecture (no FAISS complexity)
-- Gemini 2.0Flash  for reliable decisions
-- Security validation (HTML injection protection)
+**Retrieval Stage:**
 - PostgreSQL 16 with pgvector extension
-- Fast similarity search
-- Deterministic retrieval and coverage calculation
-- Envelope response format with detailed metadata
-- Multi-citation requirements for approval (≥2)
-- Docker containerization with health checks
+- Gemini embeddings (768 dimensions) 
+- Cosine similarity search with Top-K=4
+- Coverage calculation based on similarity scores
 
-## 📦 Installation
+**Decision Stage:**
+- Gemini 2.0 Flash for decision making
+- JSON-only output format
+- Citation filtering and validation
+- Confidence scoring
+
+**Gate System:**
+- Coverage Gate: Blocks requests with coverage < 0.35
+- Policy Gate: Requires ≥2 citations + coverage ≥0.45 for approval
+
+## Features
+
+- pgvector-based document retrieval
+- Gemini 2.0 Flash LLM integration
+- Security validation (HTML injection protection)
+- Deterministic coverage calculation
+- Multi-citation approval requirements
+- Docker containerization
+- Comprehensive test suite
+
+## Installation
 
 ### Prerequisites
 - Docker & Docker Compose
-- Google AI API key ([Get one here](https://aistudio.google.com/app/apikey))
+- Google AI API key (get from https://aistudio.google.com/app/apikey)
 
 ### Setup Steps
-1. **Clone & Configure**:
+1. Clone and configure:
 ```bash
-git clone <multi-task-agent-workflow>
+git clone <repository>
 cd backend
 cp .env.example .env
 # Edit .env with your GEMINI_API_KEY
 ```
 
-2. **Start Services**:
+2. Start services:
 ```bash
 docker compose up --build -d
 ```
 
-3. **Ingest Documents** (run once):
+3. Ingest documents (run once):
 ```bash
 docker exec task-agent-api python -m rag.ingest
 ```
 
-4. **Verify Installation**:
-- 📖 API Docs: http://localhost:8080/docs  
-- ✅ Health Check: http://localhost:8080/health
+4. Verify installation:
+- API Docs: http://localhost:8080/docs  
+- Health Check: http://localhost:8080/health
 
-## 🔌 API Usage
+## API Usage
 
 ### Core Endpoint
 ```bash
@@ -88,7 +92,7 @@ POST /review
 
 ### Example Requests
 
-**Simple Task** (Low Coverage → Insufficient Context):
+Simple task (typically low coverage):
 ```bash
 curl -X POST "http://localhost:8080/review" \
   -H "Content-Type: application/json" \
@@ -98,7 +102,7 @@ curl -X POST "http://localhost:8080/review" \
   }'
 ```
 
-**Security Task** (Higher Coverage → Potential Approval):
+Security task (typically higher coverage):
 ```bash
 curl -X POST "http://localhost:8080/review" \
   -H "Content-Type: application/json" \
@@ -108,7 +112,7 @@ curl -X POST "http://localhost:8080/review" \
   }'
 ```
 
-**Response Format** (Envelope):
+### Response Format
 ```json
 {
   "message": "review completed",
@@ -130,36 +134,44 @@ curl -X POST "http://localhost:8080/review" \
 - `approve` - Task approved (coverage ≥0.45, ≥2 citations)
 - `reject` - Task needs improvements (actionable feedback provided)  
 
-## 🧪 Testing & Validation
+## Testing
 
 ### Run Tests
 ```bash
-# Full test suite
-pytest tests/ -v
+# All tests (recommended)
+make test-docker
 
-# Quick minimal test
-pytest tests/test_orchestration.py::TestOrchestration::test_coverage_gate_blocks_low_coverage -v
+# Quick minimal tests
+make test-docker-minimal
+
+# Simple functionality tests
+make test-docker-simple
+
+# Show all commands
+make help
 ```
 
-**Test Coverage**:
-- ✅ Decision agent (JSON parsing, citation filtering)
-- ✅ API endpoints (health check, review endpoint)
-- ✅ Security validation (HTML injection protection)
+### Test Coverage
+- API endpoints and validation
+- RAG pipeline (retrieval, coverage, decision)
+- Security validation (HTML injection protection)
+- Database integration
+- Error handling and edge cases
 
-## 🔧 Development
+## Development
 
 ### Local Development
 ```bash
 # Install dependencies
 pip install uv && uv sync
 
-# Start database
+# Start database only
 docker compose up db -d
 
 # Ingest documents
 python -m rag.ingest
 
-# Run locally  
+# Run API locally  
 source .venv/bin/activate
 uvicorn main:app --reload --port 8080
 ```
@@ -168,11 +180,11 @@ uvicorn main:app --reload --port 8080
 ```
 backend/
 ├── rag/                 # RAG pipeline
-│   ├── ingest.py           # Offline document ingestion  
+│   ├── ingest.py           # Document ingestion  
 │   └── orchestrator.py     # Main orchestration flow
 ├── agents/              # Specialist agents
 │   ├── retriever_agent.py  # pgvector retrieval + coverage
-│   └── decision_agent.py   # Gemini 1.5 decision making
+│   └── decision_agent.py   # Gemini decision making
 ├── db/sql/              # Database schema
 ├── routes/              # API endpoints  
 ├── schemas/             # Pydantic models

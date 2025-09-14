@@ -44,10 +44,19 @@ class DecisionAgent(BaseAgent):
             
             # Parse and validate JSON
             try:
-                decision_data = json.loads(decision_json)
+                # Clean the response - remove markdown code blocks if present
+                cleaned_json = decision_json.strip()
+                if cleaned_json.startswith('```json'):
+                    cleaned_json = cleaned_json[7:]  # Remove ```json
+                if cleaned_json.endswith('```'):
+                    cleaned_json = cleaned_json[:-3]  # Remove ```
+                cleaned_json = cleaned_json.strip()
+                
+                decision_data = json.loads(cleaned_json)
                 return self._validate_and_filter_decision(decision_data, tags)
             except json.JSONDecodeError as e:
                 logger.error(f"Invalid JSON from LLM: {e}")
+                logger.error(f"Raw LLM response: {decision_json}")
                 return self._create_reject_response()
                 
         except Exception as e:
