@@ -1,20 +1,20 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import ValidationError
-from schemas.review import ReviewRequest, ReviewResponse
-from repositories.review_repository import ReviewRepository
+from schemas.review import ReviewRequest
+from rag.orchestrator import RAGOrchestrator
 import logging
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-review_repository = ReviewRepository()
+orchestrator = RAGOrchestrator()
 
 
-@router.post("/review", response_model=ReviewResponse)
+@router.post("/review")
 async def create_review(request: ReviewRequest):
     """
-    Create a new review task.
+    Create a new review task using the RAG orchestrator.
     
-    Validates the request and returns the response.
+    Returns envelope response: {"message": "review completed", "data": {...}}
     
     Request body validation:
     - task_id: Required string 
@@ -23,9 +23,10 @@ async def create_review(request: ReviewRequest):
     try:
         logger.info(f"Received review request for task_id: {request.task_id}")
         
-        response = review_repository.process_review(request)
+        # Use orchestrator for complete RAG pipeline
+        response = await orchestrator.process_review(request.task_id, request.details)
         
-        logger.info(f"Generated review uuid: {response.uuid} for task_id: {request.task_id}")
+        logger.info(f"Review completed for task_id: {request.task_id}, decision: {response['data']['decision']}")
         
         return response
     

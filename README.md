@@ -1,66 +1,167 @@
 # Automated Task Review Agent
 
-Microservice for automated task review and approval using RAG pipeline and multi-agent architecture.
 
-## Stack
-- **FastAPI** - REST API
-- **PostgreSQL + pgvector** - Vector database
-- **LangGraph** - Multi-agent orchestration
-- **Docker** - Containerization
+##  Quick Start
 
-## Features
-- RAG-based document retrieval
-- Multi-agent decision pipeline
-- Vector similarity search
-- RESTful API endpoints
+```bash
+# 1. Setup environment
+cp .env.example .env
+# Edit .env with your GEMINI_API_KEY
 
-## Setup
+# 2. Start services  
+docker compose up --build -d
+
+# 3. Ingest documents (run once)
+docker exec task-agent-api python -m rag.ingest
+
+# 4. Test API
+curl -X POST "http://localhost:8080/review" \
+  -H "Content-Type: application/json" \
+  -d '{"task_id": "TEST-001", "details": "implement secure user authentication system"}'
+```
+
+**API Documentation**: http://localhost:8080/docs  
+**Health Check**: http://localhost:8080/health
+
+## 🏗️ Architecture
+
+**pgvector-Only RAG System**:
+-  **Retriever Agent**: pgvector cosine similarity search with Top-K=4
+-  **Decision Agent**: Gemini 1.5 Flash 2.0 with JSON-only output  
+-  **Coverage Gates**: 0.35 threshold blocks insufficient context
+-  **Policy Gates**: Approval requires ≥2 citations + coverage ≥0.45
+-  **Deterministic Flow**: retrieve → coverage gate → decide → policy gate → finalize
+
+**pgvector Storage**:
+-  **PostgreSQL 16**: Single source of truth with pgvector extension
+-  **Gemini Embeddings**: gemini-embedding-001 model (768 dimensions)
+-  **Chunked Content**: ~900 chars with 150-200 overlap
+-  **ANN Index**: ivfflat cosine similarity for fast search
+
+##  Features
+
+- pgvector-only architecture (no FAISS complexity)
+- Gemini 2.0Flash  for reliable decisions
+- Security validation (HTML injection protection)
+- PostgreSQL 16 with pgvector extension
+- Fast similarity search
+- Deterministic retrieval and coverage calculation
+- Envelope response format with detailed metadata
+- Multi-citation requirements for approval (≥2)
+- Docker containerization with health checks
+
+## 📦 Installation
 
 ### Prerequisites
-- Docker and Docker Compose
+- Docker & Docker Compose
+- Google AI API key ([Get one here](https://aistudio.google.com/app/apikey))
 
-### Environment Configuration
-
-1. **Create .env file** in project root:
+### Setup Steps
+1. **Clone & Configure**:
 ```bash
-# PostgreSQL Database Configuration
-POSTGRES_DB=task_agent_db
-POSTGRES_USER=task_agent_user
-POSTGRES_PASSWORD=SecurePassword123!
-
-# API Configuration
-PORT=8080
-
-# Database Connection (for application use)
-DATABASE_URL=postgresql://task_agent_user:SecurePassword123!@postgres:5432/task_agent_db
-```
-
-2. **Start services**:
-```bash
+git clone <multi-task-agent-workflow>
 cd backend
-docker compose up -d
+cp .env.example .env
+# Edit .env with your GEMINI_API_KEY
 ```
 
-### Verify Installation
-- API: http://localhost:8080/docs
-- Health: http://localhost:8080/api/v1/
+2. **Start Services**:
+```bash
+docker compose up --build -d
+```
 
-## API Endpoints
+3. **Ingest Documents** (run once):
+```bash
+docker exec task-agent-api python -m rag.ingest
+```
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/` | Welcome message |
-| POST | `/api/v1/review` | Review endpoint |
-| GET | `/docs` | Interactive API documentation |
+4. **Verify Installation**:
+- 📖 API Docs: http://localhost:8080/docs  
+- ✅ Health Check: http://localhost:8080/health
 
-## Development
+## 🔌 API Usage
+
+### Core Endpoint
+```bash
+POST /review
+```
+
+### Example Requests
+
+**Simple Task** (Low Coverage → Insufficient Context):
+```bash
+curl -X POST "http://localhost:8080/review" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_id": "task-001",
+    "details": "create login form"
+  }'
+```
+
+**Security Task** (Higher Coverage → Potential Approval):
+```bash
+curl -X POST "http://localhost:8080/review" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_id": "task-001", 
+    "details": "implement secure user authentication with MFA, following security guidelines for session management and password policies"
+  }'
+```
+
+**Response Format** (Envelope):
+```json
+{
+  "message": "review completed",
+  "data": {
+    "task_id": "task-001",
+    "decision": "approve",
+    "rationale": "Task meets security requirements based on doc:security#chunk:12",
+    "citations": ["doc:security#chunk:12", "doc:auth#chunk:5"],
+    "retrieved_doc_ids": [1, 3],
+    "coverage": 0.72,
+    "latency_ms": 287,
+    "required_actions": [],
+    "confidence": 0.85
+  }
+}
+```
+
+### Decision Types
+- `approve` - Task approved (coverage ≥0.45, ≥2 citations)
+- `reject` - Task needs improvements (actionable feedback provided)  
+
+## 🧪 Testing & Validation
+
+### Run Tests
+```bash
+# Full test suite
+pytest tests/ -v
+
+# Quick minimal test
+pytest tests/test_orchestration.py::TestOrchestration::test_coverage_gate_blocks_low_coverage -v
+```
+
+**Test Coverage**:
+- ✅ Orchestration flow (coverage gates, policy gates)
+- ✅ Retriever agent (pgvector queries, coverage calculation)  
+- ✅ Decision agent (JSON parsing, citation filtering)
+- ✅ API endpoints (health check, review endpoint)
+- ✅ Security validation (HTML injection protection)
+
+## 🔧 Development
 
 ### Local Development
 ```bash
 # Install dependencies
 pip install uv && uv sync
 
-# Run locally
+# Start database
+docker compose up db -d
+
+# Ingest documents
+python -m rag.ingest
+
+# Run locally  
 source .venv/bin/activate
 uvicorn main:app --reload --port 8080
 ```
@@ -68,25 +169,19 @@ uvicorn main:app --reload --port 8080
 ### Project Structure
 ```
 backend/
-├── main.py                 # FastAPI app
-├── routes/                 # API endpoints
-├── documents/              # Document corpus
-├── Dockerfile             # Container config
-└── docker-compose.yml     # Services orchestration
+├── rag/                 # RAG pipeline
+│   ├── ingest.py           # Offline document ingestion  
+│   └── orchestrator.py     # Main orchestration flow
+├── agents/              # Specialist agents
+│   ├── retriever_agent.py  # pgvector retrieval + coverage
+│   └── decision_agent.py   # Gemini 1.5 decision making
+├── db/sql/              # Database schema
+├── routes/              # API endpoints  
+├── schemas/             # Pydantic models
+├── data/               # Document corpus (PDFs)
+├── tests/              # Test suite
+└── docker-compose.yml  # Services orchestration
 ```
 
-### Testing
-```bash
-pytest                     # Run tests
-pytest --cov=.            # With coverage
-```
 
-## Architecture
-
-The system implements a multi-agent RAG pipeline:
-
-1. **Document Ingestion** → Vector embeddings in PostgreSQL
-2. **Retrieval Agent** → Finds relevant documents via similarity search  
-3. **Decision Agent** → Makes approval/rejection decision
-4. **API Response** → Returns structured decision with reasoning
 
