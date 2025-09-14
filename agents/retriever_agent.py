@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 import google.generativeai as genai
-from sqlalchemy import text
+from sqlalchemy import text as sql_text
 
 from agents.base_agent import BaseAgent
 from database.connection import get_database_session
@@ -59,17 +59,20 @@ class RetrieverAgent(BaseAgent):
             
             # Query pgvector with Top-K=4
             with get_database_session() as db:
+                # Convert list to pgvector format
+                embedding_str = f"[{','.join(map(str, query_embedding))}]"
+                
                 results = db.execute(
-                    text("""
+                    sql_text("""
                         SELECT id, document_id, text, 
-                               (1 - (embedding <=> :query_embedding)) as similarity
+                               (1 - (embedding <=> :query_embedding::vector)) as similarity
                         FROM chunks 
                         WHERE model = :model AND dim = :dim
-                        ORDER BY embedding <=> :query_embedding
+                        ORDER BY embedding <=> :query_embedding::vector
                         LIMIT :top_k
                     """),
                     {
-                        "query_embedding": query_embedding,
+                        "query_embedding": embedding_str,
                         "model": self.settings.EMBEDDING_MODEL,
                         "dim": self.settings.EMBEDDING_DIM,
                         "top_k": self.settings.TOP_K
@@ -83,20 +86,24 @@ class RetrieverAgent(BaseAgent):
             similarities = []
             
             for row in results:
-                chunk_id, document_id, text, similarity = row
-                
-                # Trim passage to max 1500 chars
-                trimmed_text = text[:1500] if len(text) > 1500 else text
-                passages.append(trimmed_text)
-                
-                # Create tag
-                tag = f"doc:{document_id}#chunk:{chunk_id}"
-                tags.append(tag)
-                
-                # Track doc IDs and similarities
-                if document_id not in doc_ids:
-                    doc_ids.append(document_id)
-                similarities.append(float(similarity))
+                try:
+                    chunk_id, document_id, text, similarity = row
+                    
+                    # Trim passage to max 1500 chars
+                    trimmed_text = text[:1500] if len(text) > 1500 else text
+                    passages.append(trimmed_text)
+                    
+                    # Create tag
+                    tag = f"doc:{document_id}#chunk:{chunk_id}"
+                    tags.append(tag)
+                    
+                    # Track doc IDs and similarities
+                    if document_id not in doc_ids:
+                        doc_ids.append(document_id)
+                    similarities.append(float(similarity))
+                except Exception as row_error:
+                    logger.error(f"Error processing row {row}: {row_error}")
+                    continue
             
             # Calculate coverage as mean similarity
             coverage = sum(similarities) / len(similarities) if similarities else 0.0

@@ -142,8 +142,6 @@ pytest tests/test_orchestration.py::TestOrchestration::test_coverage_gate_blocks
 ```
 
 **Test Coverage**:
-- ✅ Orchestration flow (coverage gates, policy gates)
-- ✅ Retriever agent (pgvector queries, coverage calculation)  
 - ✅ Decision agent (JSON parsing, citation filtering)
 - ✅ API endpoints (health check, review endpoint)
 - ✅ Security validation (HTML injection protection)
